@@ -1,28 +1,48 @@
-﻿//=====================================================================================
-//
-// Purpose: Provide a mechanism for determining if a game world object is interactable
-//
-// This script should be attached to any object that needs touch, use or grab
-//
-// An optional highlight color can be set to change the object's appearance if it is
-// invoked.
-//
-//=====================================================================================
+﻿// Interactable Object|Scripts|0160
 namespace VRTK
 {
     using UnityEngine;
     using System.Collections;
     using System.Collections.Generic;
 
+    /// <summary>
+    /// Event Payload
+    /// </summary>
+    /// <param name="interactingObject">The object that is initiating the interaction (e.g. a controller).</param>
     public struct InteractableObjectEventArgs
     {
         public GameObject interactingObject;
     }
 
+    /// <summary>
+    /// Event Payload
+    /// </summary>
+    /// <param name="sender">this object</param>
+    /// <param name="e"><see cref="InteractableObjectEventArgs"/></param>
     public delegate void InteractableObjectEventHandler(object sender, InteractableObjectEventArgs e);
 
+    /// <summary>
+    /// The Interactable Object script is attached to any game object that is required to be interacted with (e.g. via the controllers).
+    /// </summary>
+    /// <remarks>
+    /// The basis of this script is to provide a simple mechanism for identifying objects in the game world that can be grabbed or used but it is expected that this script is the base to be inherited into a script with richer functionality.
+    /// </remarks>
+    /// <example>
+    /// `VRTK/Examples/005_Controller_BasicObjectGrabbing` uses the `VRTK_InteractTouch` and `VRTK_InteractGrab` scripts on the controllers to show how an interactable object can be grabbed and snapped to the controller and thrown around the game world.
+    ///
+    /// `VRTK/Examples/013_Controller_UsingAndGrabbingMultipleObjects` shows multiple objects that can be grabbed by holding the buttons or grabbed by toggling the button click and also has objects that can have their Using state toggled to show how multiple items can be turned on at the same time.
+    /// </example>
     public class VRTK_InteractableObject : MonoBehaviour
     {
+        /// <summary>
+        /// Types of grab attachment.
+        /// </summary>
+        /// <param name="Fixed_Joint">Attaches the object to the controller with a fixed joint meaning it tracks the position and rotation of the controller with perfect 1:1 tracking.</param>
+        /// <param name="Spring_Joint">Attaches the object to the controller with a spring joint meaning there is some flexibility between the item and the controller force moving the item. This works well when attempting to pull an item rather than snap the item directly to the controller. It creates the illusion that the item has resistance to move it.</param>
+        /// <param name="Track_Object">Doesn't attach the object to the controller via a joint, instead it ensures the object tracks the direction of the controller, which works well for items that are on hinged joints.</param>
+        /// <param name="Rotator_Track">Tracks the object but instead of the object tracking the direction of the controller, a force is applied to the object to cause it to rotate. This is ideal for hinged joints on items such as wheels or doors.</param>
+        /// <param name="Child_Of_Controller">Makes the object a child of the controller grabbing so it naturally tracks the position of the controller motion.</param>
+        /// <param name="Climbable">Non-rigid body interactable object used to allow player climbing.</param>
         public enum GrabAttachType
         {
             Fixed_Joint,
@@ -33,6 +53,12 @@ namespace VRTK
             Climbable
         }
 
+        /// <summary>
+        /// Allowed controller type.
+        /// </summary>
+        /// <param name="Both">Both controllers are allowed to interact.</param>
+        /// <param name="Left_Only">Only the left controller is allowed to interact.</param>
+        /// <param name="Right_Only">Only the right controller is allowed to interact.</param>
         public enum AllowedController
         {
             Both,
@@ -40,6 +66,12 @@ namespace VRTK
             Right_Only
         }
 
+        /// <summary>
+        /// Hide controller state.
+        /// </summary>
+        /// <param name="Default">Use the hide settings from the controller.</param>
+        /// <param name="OverrideHide">Hide the controller when interacting, overriding controller settings.</param>
+        /// <param name="OverrideDontHide">Don't hide the controller when interacting, overriding controller settings.</param>
         public enum ControllerHideMode
         {
             Default,
@@ -48,64 +80,110 @@ namespace VRTK
         }
 
         [Header("Touch Interactions", order = 1)]
+        [Tooltip("The object will only highlight when a controller touches it if this is checked.")]
         public bool highlightOnTouch = false;
+        [Tooltip("The colour to highlight the object when it is touched. This colour will override any globally set colour (for instance on the `VRTK_InteractTouch` script).")]
         public Color touchHighlightColor = Color.clear;
+        [Tooltip("The haptic feedback on the controller can be triggered upon touching the object, the `Strength` denotes the strength of the pulse, the `Duration` denotes the length of time.")]
         public Vector2 rumbleOnTouch = Vector2.zero;
+        [Tooltip("Determines which controller can initiate a touch action.")]
         public AllowedController allowedTouchControllers = AllowedController.Both;
+        [Tooltip("Optionally override the controller setting.")]
         public ControllerHideMode hideControllerOnTouch = ControllerHideMode.Default;
 
         [Header("Grab Interactions", order = 2)]
+        [Tooltip("Determines if the object can be grabbed.")]
         public bool isGrabbable = false;
+        [Tooltip("Determines if the object can be dropped by the controller grab button being used. If this is unchecked then it's not possible to drop the item once it's picked up using the controller button. It is still possible for the item to be dropped if the Grab Attach Mechanic is a joint and too much force is applied to the object and the joint is broken. To prevent this it's better to use the Child Of Controller mechanic.")]
         public bool isDroppable = true;
+        [Tooltip("Determines if the object can be swapped between controllers when it is picked up. If it is unchecked then the object must be dropped before it can be picked up by the other controller.")]
         public bool isSwappable = true;
+        [Tooltip("If this is checked then the grab button on the controller needs to be continually held down to keep grabbing. If this is unchecked the grab button toggles the grab action with one button press to grab and another to release.")]
         public bool holdButtonToGrab = true;
+        [Tooltip("If this is set to `Undefined` then the global grab alias button will grab the object, setting it to any other button will ensure the override button is used to grab this specific interactable object.")]
         public VRTK_ControllerEvents.ButtonAlias grabOverrideButton = VRTK_ControllerEvents.ButtonAlias.Undefined;
+        [Tooltip("The haptic feedback on the controller can be triggered upon grabbing the object, the `Strength` denotes the strength of the pulse, the `Duration` denotes the length of time.")]
         public Vector2 rumbleOnGrab = Vector2.zero;
+        [Tooltip("Determines which controller can initiate a grab action.")]
         public AllowedController allowedGrabControllers = AllowedController.Both;
+        [Tooltip("If this is checked then when the controller grabs the object, it will grab it with precision and pick it up at the particular point on the object the controller is touching.")]
         public bool precisionSnap;
+        [Tooltip("A Transform provided as an empty game object which must be the child of the item being grabbed and serves as an orientation point to rotate and position the grabbed item in relation to the right handed controller. If no Right Snap Handle is provided but a Left Snap Handle is provided, then the Left Snap Handle will be used in place. If no Snap Handle is provided then the object will be grabbed at its central point. Not required for `Precision Snap`.")]
         public Transform rightSnapHandle;
+        [Tooltip("A Transform provided as an empty game object which must be the child of the item being grabbed and serves as an orientation point to rotate and position the grabbed item in relation to the left handed controller. If no Left Snap Handle is provided but a Right Snap Handle is provided, then the Right Snap Handle will be used in place. If no Snap Handle is provided then the object will be grabbed at its central point. Not required for `Precision Snap`.")]
         public Transform leftSnapHandle;
+        [Tooltip("Optionally override the controller setting.")]
         public ControllerHideMode hideControllerOnGrab = ControllerHideMode.Default;
+        [Tooltip("If this is checked then the object will stay grabbed to the controller when a teleport occurs. If it is unchecked then the object will be released when a teleport occurs.")]
         public bool stayGrabbedOnTeleport = true;
 
         [Header("Grab Mechanics", order = 3)]
+        [Tooltip("This determines how the grabbed item will be attached to the controller when it is grabbed.")]
         public GrabAttachType grabAttachMechanic = GrabAttachType.Fixed_Joint;
+        [Tooltip("The force amount when to detach the object from the grabbed controller. If the controller tries to exert a force higher than this threshold on the object (from pulling it through another object or pushing it into another object) then the joint holding the object to the grabbing controller will break and the object will no longer be grabbed. This also works with Tracked Object grabbing but determines how far the controller is from the object before breaking the grab. Only required for `Fixed Joint`, `Spring Joint`, `Track Object` and `Rotator Track`.")]
         public float detachThreshold = 500f;
+        [Tooltip("The strength of the spring holding the object to the controller. A low number will mean the spring is very loose and the object will require more force to move it, a high number will mean a tight spring meaning less force is required to move it. Only required for `Spring Joint`.")]
         public float springJointStrength = 500f;
+        [Tooltip("The amount to damper the spring effect when using a Spring Joint grab mechanic. A higher number here will reduce the oscillation effect when moving jointed Interactable Objects. Only required for `Spring Joint`.")]
         public float springJointDamper = 50f;
+        [Tooltip("An amount to multiply the velocity of the given object when it is thrown. This can also be used in conjunction with the Interact Grab Throw Multiplier to have certain objects be thrown even further than normal (or thrown a shorter distance if a number below 1 is entered).")]
         public float throwMultiplier = 1f;
+        [Tooltip("The amount of time to delay collisions affecting the object when it is first grabbed. This is useful if a game object may get stuck inside another object when it is being grabbed.")]
         public float onGrabCollisionDelay = 0f;
 
         [Header("Use Interactions", order = 4)]
+        [Tooltip("Determines if the object can be used.")]
         public bool isUsable = false;
+        [Tooltip("If this is checked the object can be used only if it was grabbed before.")]
         public bool useOnlyIfGrabbed = false;
+        [Tooltip("If this is checked then the use button on the controller needs to be continually held down to keep using. If this is unchecked the the use button toggles the use action with one button press to start using and another to stop using.")]
         public bool holdButtonToUse = true;
+        [Tooltip("If this is set to `Undefined` then the global use alias button will use the object, setting it to any other button will ensure the override button is used to use this specific interactable object.")]
         public VRTK_ControllerEvents.ButtonAlias useOverrideButton = VRTK_ControllerEvents.ButtonAlias.Undefined;
+        [Tooltip("If this is checked then when a World Pointer beam (projected from the controller) hits the interactable object, if the object has `Hold Button To Use` unchecked then whilst the pointer is over the object it will run it's `Using` method. If `Hold Button To Use` is unchecked then the `Using` method will be run when the pointer is deactivated. The world pointer will not throw the `Destination Set` event if it is affecting an interactable object with this setting checked as this prevents unwanted teleporting from happening when using an object with a pointer.")]
         public bool pointerActivatesUseAction = false;
+        [Tooltip("The haptic feedback on the controller can be triggered upon using the object, the `Strength` denotes the strength of the pulse, the `Duration` denotes the length of time.")]
         public Vector2 rumbleOnUse = Vector2.zero;
+        [Tooltip("Determines which controller can initiate a use action.")]
         public AllowedController allowedUseControllers = AllowedController.Both;
+        [Tooltip("Optionally override the controller setting.")]
         public ControllerHideMode hideControllerOnUse = ControllerHideMode.Default;
 
+        /// <summary>
+        /// Emitted when another object touches the current object.
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectTouched;
+        /// <summary>
+        /// Emitted when the other object stops touching the current object.
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectUntouched;
+        /// <summary>
+        /// Emitted when another object grabs the current object (e.g. a controller).
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectGrabbed;
+        /// <summary>
+        /// Emitted when the other object stops grabbing the current object.
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectUngrabbed;
+        /// <summary>
+        /// Emitted when another object uses the current object (e.g. a controller).
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectUsed;
+        /// <summary>
+        /// Emitted when the other object stops using the current object.
+        /// </summary>
         public event InteractableObjectEventHandler InteractableObjectUnused;
 
         protected Rigidbody rb;
         protected GameObject touchingObject = null;
         protected GameObject grabbingObject = null;
         protected GameObject usingObject = null;
-
         protected int usingState = 0;
         protected Dictionary<string, Color[]> originalObjectColours;
-
         protected Transform grabbedSnapHandle;
         protected Transform trackPoint;
         protected bool customTrackPoint = false;
         protected Transform originalControllerAttachPoint;
-
         protected Transform previousParent;
         protected bool previousKinematicState;
         protected bool previousIsGrabbable;
